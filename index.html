@@ -193,13 +193,28 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 /* REELS */
 .reels-row{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;}
 .reels-row::-webkit-scrollbar{display:none;}
-.reel-card{flex-shrink:0;width:120px;height:200px;border-radius:12px;overflow:hidden;position:relative;cursor:pointer;background:var(--card);transition:.2s;}
+.reel-card{flex-shrink:0;width:120px;height:200px;border-radius:12px;overflow:hidden;position:relative;cursor:pointer;background:var(--card);transition:transform .2s;}
 .reel-card:hover{transform:scale(1.04);}
-.reel-video{width:100%;height:100%;object-fit:cover;display:block;}
-.reel-play-ring{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:rgba(0,0,0,0.3);}
-.reel-overlay{position:absolute;bottom:0;left:0;right:0;padding:10px 8px;background:linear-gradient(0deg,rgba(6,11,20,0.9),transparent);}
+/* thumbnail layer — always visible until playing */
+.reel-thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:2;transition:opacity .3s;}
+/* video layer — behind thumb by default */
+.reel-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1;opacity:0;transition:opacity .3s;}
+/* playing state: fade out thumb, reveal video */
+.reel-card.reel-playing .reel-thumb{opacity:0;pointer-events:none;}
+.reel-card.reel-playing .reel-video{opacity:1;z-index:3;}
+.reel-card.reel-playing .reel-play-ring{opacity:0;pointer-events:none;}
+/* play ring — sits above thumb */
+.reel-play-ring{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:rgba(0,0,0,0.28);z-index:4;transition:opacity .25s;}
+/* locked overlay */
+.reel-locked-overlay{position:absolute;inset:0;background:rgba(6,11,20,0.72);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;backdrop-filter:blur(3px);}
+.reel-locked-icon{font-size:1.4rem;margin-bottom:5px;}
+.reel-locked-text{font-size:.58rem;color:var(--text2);text-align:center;padding:0 6px;line-height:1.45;}
+/* bottom info strip */
+.reel-overlay{position:absolute;bottom:0;left:0;right:0;padding:10px 8px;background:linear-gradient(0deg,rgba(6,11,20,0.92),transparent);z-index:6;}
 .reel-title{font-size:.68rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .reel-lock{font-size:.58rem;color:var(--text3);margin-top:2px;}
+/* skeleton for reels */
+.skel-reel{flex-shrink:0;width:120px;height:200px;border-radius:12px;}
 
 /* STEP UNLOCK */
 .step-track{display:flex;align-items:center;gap:0;margin-bottom:18px;overflow:hidden;}
@@ -613,7 +628,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 initializeAppCheck(app, {
-  provider: new ReCaptchaV3Provider('6Lchsb8sAAAAAHrL66I1Imj0iJfTZVODSnPdXCeY'),
+  provider: new ReCaptchaV3Provider('6Lchsb8sAAAAAHrL66I1lmj0lJFTZVODSnPdXCeY'),
   isTokenAutoRefreshEnabled: true
 });
 
@@ -725,11 +740,17 @@ async function loadFeatureSettings() {
 
 async function loadReels() {
   if (!featureSettings.reelsEnabled) return;
+  // Show skeleton immediately so there's no blank row
+  const row = document.getElementById('reelsRow');
+  const section = document.getElementById('reelsSection');
+  section.style.display = 'block';
+  row.innerHTML = Array(5).fill('<div class="skeleton skel-reel"></div>').join('');
   try {
-    const snap = await getDocs(collection(db,'reels'));
+    const snap = await getDocs(query(collection(db,'reels'), orderBy('createdAt','desc')));
     reelsData = []; snap.forEach(d => reelsData.push({ id:d.id, ...d.data() }));
     if (reelsData.length) renderReels();
-  } catch(e) {}
+    else { section.style.display='none'; }
+  } catch(e) { section.style.display='none'; }
 }
 
 // ─── HERO ───
@@ -1256,9 +1277,92 @@ window.surpriseMe = function() {
 };
 
 // ─── REELS ───
-function renderReels(){const section=document.getElementById('reelsSection'),row=document.getElementById('reelsRow');section.style.display='block';row.innerHTML=reelsData.map(r=>`<div class="reel-card" onclick="openReelMovie('${r.movieId||''}')"><video class="reel-video" src="${r.videoUrl||''}" muted loop playsinline preload="none" onmouseenter="this.play()" onmouseleave="this.pause();this.currentTime=0;"></video><div class="reel-play-ring">▶</div><div class="reel-overlay"><div class="reel-title">${r.title||'Short Clip'}</div><div class="reel-lock">🔒 Unlock required</div></div></div>`).join('');}
-window.openReelMovie=function(movieId){if(movieId&&allMovies.find(m=>m.id===movieId)){openMovieAndTrack(movieId);}else{showToast('info','🎞️','Full video requires unlock!');}};
+function renderReels() {
+  const section = document.getElementById('reelsSection');
+  const row = document.getElementById('reelsRow');
+  section.style.display = 'block';
+  const FALLBACK = 'https://via.placeholder.com/120x200/0c1a2e/0ea5e9?text=🎞️';
+  row.innerHTML = reelsData.map((r, idx) => {
+    const isLocked = r.accessType === 'locked';
+    const thumbSrc = r.thumbnailUrl || FALLBACK;
+    // Preload first 2 videos eagerly; rest lazily
+    const preloadAttr = idx < 2 ? 'auto' : 'none';
+    const loadingAttr = idx < 2 ? 'eager' : 'lazy';
+    const lockOverlay = isLocked
+      ? `<div class="reel-locked-overlay"><div class="reel-locked-icon">🔒</div><div class="reel-locked-text">Full video requires unlock</div></div>`
+      : '';
+    const lockLabel = isLocked
+      ? `<div class="reel-lock">🔒 Locked</div>`
+      : `<div class="reel-lock" style="color:#10b981;">🆓 Free</div>`;
+    return `
+      <div class="reel-card"
+           data-id="${r.id}"
+           data-movie="${r.movieId||''}"
+           data-access="${isLocked?'locked':'free'}">
+        <img class="reel-thumb"
+             src="${thumbSrc}"
+             loading="${loadingAttr}"
+             onerror="this.src='${FALLBACK}'"
+             alt="${r.title||'Short Clip'}">
+        <video class="reel-video"
+               src="${r.videoUrl||''}"
+               muted loop playsinline
+               preload="${preloadAttr}"></video>
+        <div class="reel-play-ring">▶</div>
+        ${lockOverlay}
+        <div class="reel-overlay">
+          <div class="reel-title">${r.title||'Short Clip'}</div>
+          ${lockLabel}
+        </div>
+      </div>`;
+  }).join('');
+  attachReelEvents();
+}
 
+function attachReelEvents() {
+  document.querySelectorAll('.reel-card').forEach(card => {
+    card.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const access  = this.dataset.access;
+      const movieId = this.dataset.movie;
+      const video   = this.querySelector('.reel-video');
+
+      if (access === 'locked') {
+        showToast('info', '🔒', 'Full video requires unlock!');
+        // Briefly flash the lock overlay
+        const ov = this.querySelector('.reel-locked-overlay');
+        if (ov) { ov.style.background='rgba(239,68,68,0.5)'; setTimeout(()=>ov.style.background='',500); }
+        return;
+      }
+
+      // ── FREE ──
+      if (this.classList.contains('reel-playing')) {
+        // Already playing — second tap opens the linked movie
+        if (movieId) openMovieAndTrack(movieId);
+        return;
+      }
+
+      // Stop every other playing reel first
+      document.querySelectorAll('.reel-card.reel-playing').forEach(c => {
+        c.classList.remove('reel-playing');
+        const v = c.querySelector('.reel-video');
+        if (v) { v.pause(); v.currentTime = 0; }
+      });
+
+      // Play this one inline
+      this.classList.add('reel-playing');
+      video.play().catch(() => {
+        // Autoplay blocked — just keep thumbnail shown
+        this.classList.remove('reel-playing');
+      });
+    });
+  });
+}
+
+window.openReelMovie = function(movieId) {
+  if (movieId && allMovies.find(m => m.id === movieId)) openMovieAndTrack(movieId);
+  else showToast('info', '🎞️', 'Full video requires unlock!');
+};
 // ─── SOCIAL CARD ───
 function renderSocialCard(fbUrl,tgUrl){const card=document.getElementById('socialCommunityCard'),fbBtn=document.getElementById('communityFbBtn'),tgBtn=document.getElementById('communityTgBtn');if(!card)return;let any=false;if(fbUrl){fbBtn.style.display='inline-flex';fbBtn.dataset.url=fbUrl;any=true;}if(tgUrl){tgBtn.style.display='inline-flex';tgBtn.dataset.url=tgUrl;any=true;}card.style.display=any?'block':'none';}
 window.openSocialLink=function(type){const btn=document.getElementById(type==='fb'?'communityFbBtn':'communityTgBtn');const url=btn?.dataset?.url;if(url)window.open(url,'_blank');};
