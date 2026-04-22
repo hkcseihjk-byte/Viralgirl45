@@ -195,24 +195,30 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 .reels-row::-webkit-scrollbar{display:none;}
 .reel-card{flex-shrink:0;width:120px;height:200px;border-radius:12px;overflow:hidden;position:relative;cursor:pointer;background:var(--card);transition:transform .2s;}
 .reel-card:hover{transform:scale(1.04);}
-/* thumbnail layer — always visible until playing */
-.reel-thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:2;transition:opacity .3s;}
-/* video layer — behind thumb by default */
-.reel-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;z-index:1;opacity:0;transition:opacity .3s;}
-/* playing state: fade out thumb, reveal video */
+/* video fills card, always visible for free reels */
+.reel-thumb{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:2;transition:opacity .4s;display:block;}
+/* video visible by default — autoplay will show content immediately */
+.reel-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:12px;z-index:1;opacity:1;display:block;}
+/* playing: fade out thumb to reveal video */
 .reel-card.reel-playing .reel-thumb{opacity:0;pointer-events:none;}
-.reel-card.reel-playing .reel-video{opacity:1;z-index:3;}
+.reel-card.reel-playing .reel-video{z-index:3;}
 .reel-card.reel-playing .reel-play-ring{opacity:0;pointer-events:none;}
-/* play ring — sits above thumb */
+/* free reels: auto-show video, hide thumb */
+.reel-card[data-access="free"] .reel-thumb{opacity:0;pointer-events:none;}
+.reel-card[data-access="free"] .reel-video{z-index:3;}
+.reel-card[data-access="free"] .reel-play-ring{opacity:0;}
+/* play ring above thumbnail */
 .reel-play-ring{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:1.6rem;background:rgba(0,0,0,0.28);z-index:4;transition:opacity .25s;}
 /* locked overlay */
-.reel-locked-overlay{position:absolute;inset:0;background:rgba(6,11,20,0.72);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;backdrop-filter:blur(3px);}
-.reel-locked-icon{font-size:1.4rem;margin-bottom:5px;}
-.reel-locked-text{font-size:.58rem;color:var(--text2);text-align:center;padding:0 6px;line-height:1.45;}
-/* bottom info strip */
+.reel-locked-overlay{position:absolute;inset:0;background:rgba(6,11,20,0.72);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:5;backdrop-filter:blur(3px);transition:background .2s;}
+.reel-locked-icon{font-size:1.4rem;margin-bottom:4px;}
+.reel-locked-text{font-size:.56rem;color:#94a3b8;text-align:center;padding:0 6px;line-height:1.45;}
+/* info strip always on top */
 .reel-overlay{position:absolute;bottom:0;left:0;right:0;padding:10px 8px;background:linear-gradient(0deg,rgba(6,11,20,0.92),transparent);z-index:6;}
 .reel-title{font-size:.68rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .reel-lock{font-size:.58rem;color:var(--text3);margin-top:2px;}
+/* watch full button inside info strip */
+.reel-watch-btn{display:block;margin-top:5px;font-size:.55rem;font-weight:700;color:#0ea5e9;background:rgba(14,165,233,0.12);border:1px solid rgba(14,165,233,0.25);border-radius:10px;padding:3px 6px;cursor:pointer;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 /* skeleton for reels */
 .skel-reel{flex-shrink:0;width:120px;height:200px;border-radius:12px;}
 
@@ -740,17 +746,31 @@ async function loadFeatureSettings() {
 
 async function loadReels() {
   if (!featureSettings.reelsEnabled) return;
-  // Show skeleton immediately so there's no blank row
-  const row = document.getElementById('reelsRow');
+  // Show skeletons immediately so the row is never blank
   const section = document.getElementById('reelsSection');
+  const row     = document.getElementById('reelsRow');
   section.style.display = 'block';
   row.innerHTML = Array(5).fill('<div class="skeleton skel-reel"></div>').join('');
   try {
-    const snap = await getDocs(query(collection(db,'reels'), orderBy('createdAt','desc')));
-    reelsData = []; snap.forEach(d => reelsData.push({ id:d.id, ...d.data() }));
-    if (reelsData.length) renderReels();
-    else { section.style.display='none'; }
-  } catch(e) { section.style.display='none'; }
+    // Try ordered fetch first; fall back gracefully if index missing
+    let snap;
+    try {
+      snap = await getDocs(query(collection(db,'reels'), orderBy('createdAt','desc')));
+    } catch(_) {
+      snap = await getDocs(collection(db,'reels'));
+    }
+    reelsData = [];
+    snap.forEach(d => reelsData.push({ id:d.id, ...d.data() }));
+    // Client-side sort as safety net
+    reelsData.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+    if (reelsData.length) {
+      renderReels();
+    } else {
+      section.style.display = 'none';
+    }
+  } catch(e) {
+    section.style.display = 'none';
+  }
 }
 
 // ─── HERO ───
@@ -1279,83 +1299,137 @@ window.surpriseMe = function() {
 // ─── REELS ───
 function renderReels() {
   const section = document.getElementById('reelsSection');
-  const row = document.getElementById('reelsRow');
+  const row     = document.getElementById('reelsRow');
   section.style.display = 'block';
   const FALLBACK = 'https://via.placeholder.com/120x200/0c1a2e/0ea5e9?text=🎞️';
+
   row.innerHTML = reelsData.map((r, idx) => {
-    const isLocked = r.accessType === 'locked';
-    const thumbSrc = r.thumbnailUrl || FALLBACK;
-    // Preload first 2 videos eagerly; rest lazily
-    const preloadAttr = idx < 2 ? 'auto' : 'none';
+    const isLocked    = r.accessType === 'locked';
+    const thumbSrc    = r.thumbnailUrl || FALLBACK;
+    // Preload first 2 eagerly; rest lazily
     const loadingAttr = idx < 2 ? 'eager' : 'lazy';
-    const lockOverlay = isLocked
-      ? `<div class="reel-locked-overlay"><div class="reel-locked-icon">🔒</div><div class="reel-locked-text">Full video requires unlock</div></div>`
-      : '';
-    const lockLabel = isLocked
+    const preloadAttr = idx < 2 ? 'auto'  : 'none';
+
+    const lockedOverlay = isLocked ? `
+      <div class="reel-locked-overlay">
+        <div class="reel-locked-icon">🔒</div>
+        <div class="reel-locked-text">Unlock to watch full video</div>
+      </div>` : '';
+
+    const statusLabel = isLocked
       ? `<div class="reel-lock">🔒 Locked</div>`
       : `<div class="reel-lock" style="color:#10b981;">🆓 Free</div>`;
+
+    const watchBtn = r.movieId
+      ? `<div class="reel-watch-btn" data-movie="${r.movieId}">▶ Watch Full Video</div>`
+      : '';
+
     return `
       <div class="reel-card"
            data-id="${r.id}"
            data-movie="${r.movieId||''}"
            data-access="${isLocked?'locked':'free'}">
-        <img class="reel-thumb"
-             src="${thumbSrc}"
-             loading="${loadingAttr}"
-             onerror="this.src='${FALLBACK}'"
-             alt="${r.title||'Short Clip'}">
+        <img  class="reel-thumb"
+              src="${thumbSrc}"
+              loading="${loadingAttr}"
+              decoding="async"
+              onerror="this.src='${FALLBACK}'"
+              alt="${r.title||'Short Clip'}">
         <video class="reel-video"
                src="${r.videoUrl||''}"
-               muted loop playsinline
-               preload="${preloadAttr}"></video>
+               autoplay
+               muted
+               loop
+               playsinline
+               preload="auto"
+               onerror="this.style.display='none'"></video>
         <div class="reel-play-ring">▶</div>
-        ${lockOverlay}
+        ${lockedOverlay}
         <div class="reel-overlay">
           <div class="reel-title">${r.title||'Short Clip'}</div>
-          ${lockLabel}
+          ${statusLabel}
+          ${watchBtn}
         </div>
       </div>`;
   }).join('');
+
   attachReelEvents();
+
+  // Force autoplay on all free reel videos (handles browsers that block autoplay attribute)
+  requestAnimationFrame(() => {
+    document.querySelectorAll('.reel-card[data-access="free"] .reel-video').forEach(v => {
+      v.muted = true;
+      v.play().catch(() => {
+        // Autoplay blocked — show thumbnail as fallback
+        const card = v.closest('.reel-card');
+        if (card) {
+          const thumb = card.querySelector('.reel-thumb');
+          if (thumb) { thumb.style.opacity = '1'; thumb.style.pointerEvents = ''; }
+        }
+      });
+    });
+  });
 }
 
 function attachReelEvents() {
   document.querySelectorAll('.reel-card').forEach(card => {
+    // Main card tap — play/lock logic
     card.addEventListener('click', function(e) {
+      // If "Watch Full Video" button tapped — handle separately
+      if (e.target.classList.contains('reel-watch-btn')) return;
       e.stopPropagation();
+
       const access  = this.dataset.access;
-      const movieId = this.dataset.movie;
       const video   = this.querySelector('.reel-video');
 
       if (access === 'locked') {
-        showToast('info', '🔒', 'Full video requires unlock!');
-        // Briefly flash the lock overlay
+        // Flash lock overlay red briefly
         const ov = this.querySelector('.reel-locked-overlay');
-        if (ov) { ov.style.background='rgba(239,68,68,0.5)'; setTimeout(()=>ov.style.background='',500); }
+        if (ov) {
+          ov.style.background = 'rgba(239,68,68,0.5)';
+          setTimeout(() => { ov.style.background = ''; }, 500);
+        }
+        showToast('info', '🔒', 'Unlock to watch full video!');
         return;
       }
 
-      // ── FREE ──
-      if (this.classList.contains('reel-playing')) {
-        // Already playing — second tap opens the linked movie
-        if (movieId) openMovieAndTrack(movieId);
-        return;
-      }
+      // FREE — play inline
+      if (this.classList.contains('reel-playing')) return; // already playing, ignore re-tap on card body
 
-      // Stop every other playing reel first
+      // Stop all other playing reels
       document.querySelectorAll('.reel-card.reel-playing').forEach(c => {
         c.classList.remove('reel-playing');
         const v = c.querySelector('.reel-video');
         if (v) { v.pause(); v.currentTime = 0; }
       });
 
-      // Play this one inline
       this.classList.add('reel-playing');
-      video.play().catch(() => {
-        // Autoplay blocked — just keep thumbnail shown
-        this.classList.remove('reel-playing');
-      });
+      if (video) {
+        video.muted = true;
+        if (video.src) {
+          video.play().catch(() => {
+            // Autoplay blocked — revert to thumbnail
+            this.classList.remove('reel-playing');
+            const thumb = this.querySelector('.reel-thumb');
+            if (thumb) { thumb.style.opacity = '1'; thumb.style.pointerEvents = ''; }
+          });
+        }
+      }
     });
+
+    // "Watch Full Video" button
+    const watchBtn = card.querySelector('.reel-watch-btn');
+    if (watchBtn) {
+      watchBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const movieId = this.dataset.movie;
+        if (movieId && allMovies.find(m => m.id === movieId)) {
+          openMovieAndTrack(movieId);
+        } else {
+          showToast('info', '🎞️', 'Movie not found.');
+        }
+      });
+    }
   });
 }
 
