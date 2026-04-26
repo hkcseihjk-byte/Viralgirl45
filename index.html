@@ -193,6 +193,27 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 /* REELS */
 .reels-row{display:flex;gap:12px;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;}
 .reels-row::-webkit-scrollbar{display:none;}
+.ep-list-wrap{margin-top:18px;background:rgba(14,165,233,0.05);border:1px solid rgba(14,165,233,0.18);border-radius:14px;padding:18px;}
+.ep-list-title{font-size:.78rem;font-weight:700;color:var(--primary);letter-spacing:.5px;text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:6px;}
+.ep-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;}
+.ep-btn{background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.22);border-radius:10px;color:var(--text);font-family:'Outfit',sans-serif;font-size:.82rem;font-weight:600;padding:10px 12px;cursor:pointer;transition:.2s;text-align:left;display:flex;flex-direction:column;gap:3px;}
+.ep-btn:hover{background:rgba(14,165,233,0.2);border-color:var(--primary);}
+.ep-btn.ep-active{background:linear-gradient(135deg,rgba(14,165,233,0.25),rgba(139,92,246,0.2));border-color:var(--primary);color:#fff;}
+.ep-btn .ep-num{font-size:.68rem;color:var(--primary);font-weight:700;}
+.ep-btn .ep-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;}
+.ep-btn.ep-locked{opacity:.75;border-style:dashed;}
+.ep-btn.ep-locked .ep-status{color:var(--text3);}
+.ep-btn.ep-unlocked-badge .ep-status{color:#10b981;}
+.ep-status{font-size:.6rem;margin-top:2px;display:flex;align-items:center;gap:3px;}
+.ep-unlock-box{margin-top:18px;background:rgba(139,92,246,0.06);border:1.5px solid rgba(139,92,246,0.25);border-radius:18px;padding:22px 18px;margin-bottom:12px;}
+.ep-unlock-title{font-size:.95rem;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:8px;}
+.ep-unlock-sub{font-size:.78rem;color:var(--text2);margin-bottom:16px;line-height:1.6;}
+.btn-ep-watch-ad{background:linear-gradient(135deg,#8b5cf6,#0ea5e9);color:#fff;border:none;padding:12px 28px;border-radius:50px;font-family:'Outfit',sans-serif;font-size:.9rem;font-weight:600;cursor:pointer;transition:.25s;display:flex;align-items:center;gap:8px;width:100%;justify-content:center;box-shadow:0 4px 20px rgba(139,92,246,0.35);}
+.btn-ep-watch-ad:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(139,92,246,0.5);}
+.btn-ep-watch-ad:disabled{opacity:.4;cursor:not-allowed;transform:none;}
+.btn-ep-play{background:linear-gradient(135deg,#10b981,#059669);color:#fff;border:none;padding:12px 28px;border-radius:50px;font-family:'Outfit',sans-serif;font-size:.9rem;font-weight:600;cursor:pointer;transition:.25s;display:flex;align-items:center;gap:8px;width:100%;justify-content:center;box-shadow:0 4px 20px rgba(16,185,129,0.35);}
+.btn-ep-play:hover{transform:translateY(-2px);}
+.reel-iframe{position:absolute;inset:0;width:100%;height:100%;border:none;border-radius:12px;z-index:3;display:block;}
 .reel-card{flex-shrink:0;width:120px;height:200px;border-radius:12px;overflow:hidden;position:relative;cursor:pointer;background:var(--card);transition:transform .2s;}
 .reel-card:hover{transform:scale(1.04);}
 /* video fills card, always visible for free reels */
@@ -586,6 +607,7 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
       <div class="modal-meta" id="modalMeta"></div>
       <p class="modal-desc" id="modalDesc">Description here.</p>
       <div id="watchSection"></div>
+      <div id="episodeListSection"></div>
     </div>
   </div>
 </div>
@@ -617,7 +639,7 @@ body{background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;min-
 <script type="module">
 import { initializeApp }            from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js";
-import { getFirestore, collection, getDocs, doc, getDoc, addDoc, updateDoc, increment, query, where, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import { getFirestore, collection, getDocs, doc, getDoc, setDoc, addDoc, updateDoc, increment, query, where, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 // ─── FIREBASE CONFIG ───
 const firebaseConfig = {
@@ -643,22 +665,50 @@ const db = getFirestore(app);
 // ─── STATE ───
 let allMovies = [], categories = [], settings = {}, adsConfig = {}, shareSettings = {};
 let currentMovie = null, adCount = 0, requiredAds = 5, isVIP = false, adCooldown = false, adMode = 'adsterra';
+let selectedEpisode = null;
 let unlockSettings = {}, featureSettings = { previewEnabled:true, continueWatchingEnabled:true, cwMaxItems:10, wishlistEnabled:true, surpriseEnabled:true, surpriseCategory:'', trendingEnabled:true, reelsEnabled:true, smartNotifEnabled:false, smartNotifMessages:[], smartNotifFrequencyMin:5 };
 let reelsData = [], pwaInstallPrompt = null, smartNotifTimer = null, fakeActivityTimer = null;
-let telegramJoined = false, previewPlayed = {}, sceneCurrentPart = {}, spinLocked = false;
+let telegramJoined = false, previewPlayed = {}, sceneCurrentPart = {}, spinLocked = false, pendingEpCallback = null;
+let epAdCount = 0, currentEpId = null;
 let dailyAdTotal = 0;
 const VIP_PLANS = [{ days:7, label:'7 Days', price:200, currency:'BDT' },{ days:15, label:'15 Days', price:400, currency:'BDT' },{ days:30, label:'30 Days', price:600, currency:'BDT', badge:'🔥 Best Value' }];
 let vipSelectedPlan = VIP_PLANS[0], vipGeneratedKey = '', vipActiveTab = 'bkash';
 let paymentSettings = { bkash:'01798090504', nagad:'01816626889', binance:'' };
 
 // ─── INIT ───
-async function init() {
-  await checkVIPStatus();
-  await Promise.all([ loadSettings(), loadAdsConfig(), loadBanners(), loadCategories(), loadUnlockSettings(), loadFeatureSettings() ]);
-  startFakeActivity();
-  await loadMovies();
-  renderContinueWatching(); renderMyList();
-  await loadReels();
+function init() {
+  document.body.style.visibility = 'visible';
+
+  // ── Cache-first: render instantly from localStorage ──
+  try {
+    const cachedMovies = JSON.parse(localStorage.getItem('cv_movies') || '[]');
+    if (cachedMovies.length) { allMovies = cachedMovies; renderMovies(cachedMovies); renderCategoryShortcuts(); }
+    else renderMovies([]);
+  } catch(_) { renderMovies([]); }
+
+  try {
+    const cachedReels = JSON.parse(localStorage.getItem('cv_reels') || '[]');
+    if (cachedReels.length) {
+      reelsData = cachedReels;
+      const section = document.getElementById('reelsSection');
+      if (section) section.style.display = 'block';
+      renderReels();
+    }
+  } catch(_) {}
+
+  renderContinueWatching();
+  renderMyList();
+
+  // ── Fire all Firebase loaders in parallel, zero blocking ──
+  checkVIPStatus();
+  loadSettings();
+  loadAdsConfig();
+  loadBanners();
+  loadCategories();
+  loadUnlockSettings().then(() => startFakeActivity());
+  loadFeatureSettings().then(() => loadReels());
+  loadMovies();
+
   initPWA();
 }
 
@@ -720,9 +770,11 @@ async function loadMovies() {
   try {
     const snap = await getDocs(collection(db,'movies'));
     allMovies = []; snap.forEach(d => allMovies.push({ id:d.id, ...d.data() }));
+    try { localStorage.setItem('cv_movies', JSON.stringify(allMovies)); } catch(_) {}
     renderMovies(allMovies); renderCategoryShortcuts();
+    renderContinueWatching(); renderMyList();
   } catch(e) {
-    document.getElementById('movieGrid').innerHTML = `<div class="no-content"><div class="no-content-icon">😔</div><p>Could not load movies. Please refresh.</p></div>`;
+    if (!allMovies.length) document.getElementById('movieGrid').innerHTML = `<div class="no-content"><div class="no-content-icon">😔</div><p>Could not load movies. Please refresh.</p></div>`;
   }
 }
 
@@ -746,30 +798,32 @@ async function loadFeatureSettings() {
 
 async function loadReels() {
   if (!featureSettings.reelsEnabled) return;
-  // Show skeletons immediately so the row is never blank
   const section = document.getElementById('reelsSection');
   const row     = document.getElementById('reelsRow');
-  section.style.display = 'block';
-  row.innerHTML = Array(5).fill('<div class="skeleton skel-reel"></div>').join('');
+  // Only show skeletons if cache didn't already populate the row
+  if (!reelsData.length) {
+    section.style.display = 'block';
+    row.innerHTML = Array(5).fill('<div class="skeleton skel-reel"></div>').join('');
+  }
   try {
-    // Try ordered fetch first; fall back gracefully if index missing
     let snap;
     try {
       snap = await getDocs(query(collection(db,'reels'), orderBy('createdAt','desc')));
     } catch(_) {
       snap = await getDocs(collection(db,'reels'));
     }
-    reelsData = [];
-    snap.forEach(d => reelsData.push({ id:d.id, ...d.data() }));
-    // Client-side sort as safety net
-    reelsData.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
-    if (reelsData.length) {
+    const fresh = [];
+    snap.forEach(d => fresh.push({ id:d.id, ...d.data() }));
+    fresh.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+    if (fresh.length) {
+      reelsData = fresh;
+      try { localStorage.setItem('cv_reels', JSON.stringify(reelsData)); } catch(_) {}
       renderReels();
-    } else {
+    } else if (!reelsData.length) {
       section.style.display = 'none';
     }
   } catch(e) {
-    section.style.display = 'none';
+    if (!reelsData.length) section.style.display = 'none';
   }
 }
 
@@ -903,7 +957,9 @@ window.openMovie = async function(id) {
     movie.rating   && `<span class="meta-tag">⭐ ${movie.rating}</span>`,
     (movie.contentMode==='vip'||movie.isVIP) ? '<span class="meta-tag" style="color:#f59e0b">👑 VIP</span>' : '<span class="meta-tag" style="color:#10b981">✅ Free</span>',
   ].filter(Boolean).join('');
+  selectedEpisode = null;
   renderWatchSection(movie);
+  renderEpisodeList(movie);
   document.getElementById('movieModal').classList.add('open');
   document.body.style.overflow = 'hidden';
   updateDoc(doc(db,'movies',id),         { views: increment(1) }).catch(()=>{});
@@ -983,6 +1039,252 @@ function renderWatchSection(movie) {
     </div>`;
 }
 
+
+function renderEpisodeList(movie) {
+  const sec = document.getElementById('episodeListSection');
+  if (!sec) return;
+  const eps = Array.isArray(movie.episodes) ? movie.episodes : [];
+  if (!eps.length) { sec.innerHTML = ''; return; }
+  const sorted = [...eps].sort((a,b) => (a.ep||0)-(b.ep||0));
+  const mode = movie.contentMode || (movie.isVIP ? 'vip' : 'free');
+  const alwaysUnlocked = isVIP || mode === 'free' || !adsConfig.adsEnabled;
+
+  sec.innerHTML = `<div class="ep-list-wrap">
+    <div class="ep-list-title">📺 Episodes (${sorted.length})</div>
+    <div class="ep-grid" id="epGrid">
+      ${sorted.map(ep => {
+        const epId = String(ep.ep || ep.id || '0');
+        return `
+          <button class="ep-btn ep-locked" id="epBtn_${epId}" data-ep='${JSON.stringify(ep).replace(/'/g,"&#39;")}' onclick="selectEpisode(this)">
+            <span class="ep-num">EP ${ep.ep||'?'}</span>
+            <span class="ep-name">${ep.title||'Episode '+ep.ep}</span>
+            <span class="ep-status">🔒 Locked</span>
+          </button>`;
+      }).join('')}
+    </div>
+    <div style="font-size:.7rem;color:var(--text3);margin-top:10px;text-align:center;">💡 প্রতিটি episode আলাদাভাবে unlock করতে হবে। একটি unlock করলে অন্যটি unlock হবে না।</div>
+  </div>`;
+
+  // Async: update unlock status for each episode from Firebase
+  if (alwaysUnlocked) {
+    sorted.forEach(ep => {
+      const epId = String(ep.ep || ep.id || '0');
+      const btn  = document.getElementById('epBtn_' + epId);
+      if (btn) {
+        btn.classList.remove('ep-locked');
+        btn.classList.add('ep-unlocked-badge');
+        const s = btn.querySelector('.ep-status');
+        if (s) s.innerHTML = '🆓 Free';
+      }
+    });
+    return;
+  }
+
+  const movieId = movie.id;
+  sorted.forEach(async ep => {
+    const epId  = String(ep.ep || ep.id || '0');
+    const btn   = document.getElementById('epBtn_' + epId);
+    if (!btn) return;
+    const fbUnlocked = await checkEpUnlockedFirebase(movieId, epId);
+    if (fbUnlocked) {
+      btn.classList.remove('ep-locked');
+      btn.classList.add('ep-unlocked-badge');
+      const s = btn.querySelector('.ep-status');
+      if (s) s.innerHTML = '🔓 Unlocked';
+    }
+  });
+}
+
+function isEpisodeUnlocked() {
+  const mode = currentMovie ? (currentMovie.contentMode || (currentMovie.isVIP ? 'vip' : 'free')) : 'free';
+  return isVIP || mode === 'free' || !adsConfig.adsEnabled || adCount >= requiredAds;
+}
+
+// ─── PER-EPISODE FIREBASE UNLOCK ───
+function getUserId() {
+  let uid = localStorage.getItem('cv_user_id');
+  if (!uid) { uid = 'u_' + Date.now() + '_' + Math.random().toString(36).slice(2,9); localStorage.setItem('cv_user_id', uid); }
+  return uid;
+}
+
+async function checkEpUnlockedFirebase(movieId, epId) {
+  try {
+    const uid = getUserId();
+    const snap = await getDoc(doc(db, 'unlock', uid, movieId, String(epId)));
+    return snap.exists() && snap.data().unlocked === true;
+  } catch(e) { return false; }
+}
+
+async function markEpUnlockedFirebase(movieId, epId) {
+  try {
+    const uid = getUserId();
+    await setDoc(doc(db, 'unlock', uid, movieId, String(epId)), { unlocked: true, ts: serverTimestamp() });
+  } catch(e) { console.warn('markEpUnlocked:', e); }
+}
+
+function isEpUnlocked(key) {
+  return localStorage.getItem('unlock_episode_' + key) === 'true';
+}
+function markEpUnlocked(key) {
+  localStorage.setItem('unlock_episode_' + key, 'true');
+}
+
+window.selectEpisode = async function(btn) {
+  const ep = JSON.parse(btn.getAttribute('data-ep'));
+  window.selectedEpisode = ep;
+  selectedEpisode = ep;
+  document.querySelectorAll('.ep-btn').forEach(b => b.classList.remove('ep-active'));
+  btn.classList.add('ep-active');
+
+  const movieId = currentMovie?.id || '';
+  const epId    = String(ep.ep || ep.id || '0');
+  currentEpId   = epId;
+
+  const mode = currentMovie ? (currentMovie.contentMode || (currentMovie.isVIP ? 'vip' : 'free')) : 'free';
+
+  // VIP / free / ads disabled → play directly
+  if (isVIP || mode === 'free' || !adsConfig.adsEnabled) {
+    playEpisode(ep);
+    return;
+  }
+
+  // Check Firebase for this specific episode's unlock
+  btn.style.opacity = '0.6';
+  btn.style.pointerEvents = 'none';
+  const fbUnlocked = await checkEpUnlockedFirebase(movieId, epId);
+  btn.style.opacity = '';
+  btn.style.pointerEvents = '';
+
+  if (fbUnlocked) {
+    playEpisode(ep);
+    refreshEpListUnlockState(movieId, epId);
+    return;
+  }
+
+  // Episode is locked — show per-episode unlock flow
+  epAdCount = 0;
+  const ws = document.getElementById('watchSection');
+  ws.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  renderEpisodeUnlockSection(ep, movieId, epId);
+};
+
+function renderEpisodeUnlockSection(ep, movieId, epId) {
+  const ws   = document.getElementById('watchSection');
+  const req  = requiredAds;
+  const pct  = Math.min((epAdCount / req) * 100, 100);
+  const done = epAdCount >= req;
+
+  ws.innerHTML = `
+    <div class="ep-unlock-box" id="epUnlockBox">
+      <div class="ep-unlock-title">🔒 Episode ${ep.ep || '?'} — ${ep.title || 'Episode'}</div>
+      <div class="ep-unlock-sub">এই episode টি আলাদাভাবে unlock করতে হবে। <strong>${req}</strong>টি ছোট ad দেখুন এবং শুধু এই episode টি unlock করুন।<br><span style="color:var(--primary);font-size:.72rem;">প্রতিটি episode আলাদা unlock — একটি unlock করলে অন্যটি unlock হবে না।</span></div>
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;font-size:.72rem;color:var(--text3);margin-bottom:7px;"><span>Ad Progress (EP ${ep.ep || '?'})</span><span style="font-weight:600;color:${done?'#10b981':'var(--accent2)'};">${epAdCount}/${req} watched</span></div>
+        <div style="height:8px;background:rgba(255,255,255,0.07);border-radius:10px;overflow:hidden;"><div style="height:100%;border-radius:10px;background:linear-gradient(90deg,#8b5cf6,#0ea5e9);width:${pct}%;transition:.6s;"></div></div>
+      </div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:18px;">
+        ${Array.from({length:req},(_,i)=>`<div style="width:26px;height:26px;border-radius:50%;font-size:.62rem;font-weight:700;display:flex;align-items:center;justify-content:center;background:${i<epAdCount?'linear-gradient(135deg,#8b5cf6,#0ea5e9)':'rgba(255,255,255,0.06)'};border:1px solid ${i<epAdCount?'transparent':'var(--border)'};color:${i<epAdCount?'#fff':'var(--text3)'};">${i<epAdCount?'✓':i+1}</div>`).join('')}
+      </div>
+      ${!done
+        ? `<button class="btn-ep-watch-ad" id="epAdBtn" onclick="watchEpisodeAd('${movieId}','${epId}')">📢 Watch Ad to Unlock EP ${ep.ep || '?'} (${epAdCount}/${req})</button>
+           <div id="epCooldownMsg" style="margin-top:10px;text-align:center;font-size:.78rem;"></div>`
+        : `<button class="btn-ep-play" onclick="finishEpisodeUnlock('${movieId}','${epId}')">▶ Play EP ${ep.ep || '?'} — Unlocked!</button>`
+      }
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px 16px;background:rgba(245,158,11,0.04);border:1px solid rgba(245,158,11,0.18);border-radius:12px;cursor:pointer;margin-top:10px;" onclick="closeModal();setTimeout(openVipModal,200);">
+      <span>👑</span><span style="font-size:.82rem;color:var(--text2);">Unlock all episodes instantly with</span>
+      <span style="font-size:.88rem;font-weight:700;background:linear-gradient(135deg,#f59e0b,#ef4444);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">VIP</span>
+    </div>`;
+}
+
+window.watchEpisodeAd = function(movieId, epId) {
+  if (adCooldown) { showToast('warn','⏳','Please wait for cooldown.'); return; }
+  const btn  = document.getElementById('epAdBtn');
+  const cdEl = document.getElementById('epCooldownMsg');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Opening Ad...'; }
+  const adUrl = resolveAdUrl(epAdCount);
+  if (adUrl) window.open(adUrl, '_blank'); else showToast('warn','⚠️','Ad URL not configured.');
+  adCooldown = true;
+  let secs = parseInt(unlockSettings.countdownEnabled !== false ? (unlockSettings.countdownSecs || 15) : 15);
+  const tick = () => {
+    if (cdEl) cdEl.innerHTML = `<span style="color:var(--accent);">⏱ Counting down: <strong>${secs}s</strong> — keep the ad tab open</span>`;
+    if (btn)  btn.textContent = `⏳ Wait ${secs}s...`;
+  };
+  tick();
+  const timer = setInterval(() => {
+    secs--;
+    if (secs <= 0) {
+      clearInterval(timer);
+      adCooldown = false;
+      epAdCount++;
+      incrementDailyAdCount();
+      updateDoc(doc(db,'analytics','main'), { totalClicks: increment(1) }).catch(()=>{});
+      const req = requiredAds;
+      const unlocked = epAdCount >= req;
+      showToast(unlocked ? 'success' : 'info', unlocked ? '🎉' : '✅',
+        unlocked ? `EP ${selectedEpisode?.ep||''} unlocked! Press Play.` : `Ad ${epAdCount}/${req} counted for this episode!`);
+      // Re-render the episode unlock section with updated progress
+      if (currentMovie && currentEpId === epId) {
+        renderEpisodeUnlockSection(selectedEpisode, movieId, epId);
+      }
+    } else { tick(); }
+  }, 1000);
+};
+
+window.finishEpisodeUnlock = async function(movieId, epId) {
+  await markEpUnlockedFirebase(movieId, epId);
+  refreshEpListUnlockState(movieId, epId);
+  playEpisode(selectedEpisode);
+};
+
+function refreshEpListUnlockState(movieId, epId) {
+  document.querySelectorAll('.ep-btn').forEach(btn => {
+    try {
+      const ep = JSON.parse(btn.getAttribute('data-ep'));
+      const thisId = String(ep.ep || ep.id || '0');
+      if (thisId === epId) {
+        btn.classList.remove('ep-locked');
+        btn.classList.add('ep-unlocked-badge');
+        const statusEl = btn.querySelector('.ep-status');
+        if (statusEl) statusEl.innerHTML = '🔓 Unlocked';
+      }
+    } catch(_) {}
+  });
+}
+
+function resolveEpisodeUrl(url) {
+  if (!url) return null;
+  const type = detectVideoType(url);
+  return { url, type };
+}
+
+function playEpisode(ep) {
+  const url = ep.videoUrl || ep.url || '';
+  if (!url) { showToast('error','❌','No video URL for this episode.'); return; }
+  const type = detectVideoType(url);
+  const existing = document.getElementById('epPlayerWrap');
+  if (existing) existing.remove();
+  if (type === 'mp4') {
+    const wrap = document.createElement('div');
+    wrap.id = 'epPlayerWrap';
+    wrap.style.cssText = 'margin-top:16px;border-radius:14px;overflow:hidden;background:#000;';
+    wrap.innerHTML = `<video src="${url}" controls preload="metadata" playsinline style="width:100%;max-height:360px;display:block;border-radius:14px;" onerror="showToast('error','❌','Video failed to load.')"></video>`;
+    document.getElementById('watchSection').after(wrap);
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else if (type === 'iframe') {
+    const wrap = document.createElement('div');
+    wrap.id = 'epPlayerWrap';
+    wrap.style.cssText = 'margin-top:16px;border-radius:14px;overflow:hidden;background:#000;aspect-ratio:16/9;';
+    wrap.innerHTML = `<iframe src="${url}" allowfullscreen style="width:100%;height:100%;border:none;border-radius:14px;display:block;" loading="lazy"></iframe>`;
+    document.getElementById('watchSection').after(wrap);
+    wrap.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } else {
+    // external / terabox / unknown → open in new tab
+    window.open(url, '_blank');
+    showToast('info','▶','Opening episode in new tab...');
+  }
+}
+
 // ─── WATCH AD ───
 window.watchAd = function(movieId) {
   if (adCooldown) { showToast('warn','⏳','Please wait for cooldown.'); return; }
@@ -1004,11 +1306,25 @@ window.watchAd = function(movieId) {
       const unlocked = adCount >= requiredAds;
       showToast(unlocked?'success':'info', unlocked?'🎉':'✅', unlocked?'All ads watched! Movie is now unlocked.':`Ad ${adCount}/${requiredAds} counted! Keep going.`);
       renderWatchSection(currentMovie);
+      if (unlocked) {
+        if (pendingEpCallback) {
+          const cb = pendingEpCallback;
+          pendingEpCallback = null;
+          setTimeout(() => cb(), 400);
+        } else if (window.selectedEpisode || selectedEpisode) {
+          const ep = window.selectedEpisode || selectedEpisode;
+          setTimeout(() => playEpisode(ep), 400);
+        }
+      }
     } else { updateCd(); }
   }, 1000);
 };
 
 window.watchNow = function() {
+  if (selectedEpisode) {
+    playEpisode(selectedEpisode);
+    return;
+  }
   if (!currentMovie?.videoLink) { showToast('error','❌','No video link available.'); return; }
   window.open(currentMovie.videoLink, '_blank'); closeModal();
 };
@@ -1017,6 +1333,15 @@ window.closeModal = function() {
   document.getElementById('movieModal').classList.remove('open');
   document.body.style.overflow = '';
   currentMovie = null;
+  selectedEpisode = null;
+  window.selectedEpisode = null;
+  pendingEpCallback = null;
+  epAdCount = 0;
+  currentEpId = null;
+  const ep = document.getElementById('epPlayerWrap');
+  if (ep) ep.remove();
+  const epSec = document.getElementById('episodeListSection');
+  if (epSec) epSec.innerHTML = '';
 };
 
 document.getElementById('movieModal').addEventListener('click', function(e) { if(e.target===this) closeModal(); });
@@ -1061,6 +1386,7 @@ window.claimReward = function(movieId) {
   if (getDailyRewardUsed() >= parseInt(unlockSettings.rewardDailyLimit||1)) { showToast('warn','⚠️','Daily reward limit reached.'); return; }
   incrementDailyRewardUsed(); saveProgress(movieId, requiredAds); adCount=requiredAds;
   showToast('success','🎁','Daily reward claimed! Movie unlocked!'); renderWatchSection(currentMovie);
+  if (window.selectedEpisode || selectedEpisode) { const ep=window.selectedEpisode||selectedEpisode; setTimeout(()=>playEpisode(ep),400); }
 };
 
 // ─── MULTI-STEP UNLOCK ───
@@ -1093,7 +1419,7 @@ window.watchStepAd = function(movieId) {
   adCooldown=true; let secs=parseInt(unlockSettings.countdownEnabled?(unlockSettings.countdownSecs||15):15);
   const cdEl=document.getElementById('multiStepCd');
   const tick=()=>{if(cdEl)cdEl.innerHTML=`<span style="color:var(--accent);font-size:.78rem;">⏱ Wait <strong>${secs}s</strong></span>`;if(btn)btn.textContent=`⏳ Wait ${secs}s...`;};tick();
-  const t=setInterval(()=>{secs--;if(secs<=0){clearInterval(t);adCooldown=false;adCount++;incrementDailyAdCount();updateDoc(doc(db,'analytics','main'),{totalClicks:increment(1)}).catch(()=>{});const sp=getStepProgress(movieId),ts=parseInt(unlockSettings.totalSteps||3),aps=parseInt(unlockSettings.adsPerStep||2);sp.adsInStep++;if(sp.adsInStep>=aps){sp.adsInStep=0;sp.completedSteps++;}saveStepProgress(movieId,sp);if(sp.completedSteps>=ts)showToast('success','🎉','All steps complete! Movie unlocked!');else showToast('info','✅',`Step progress saved! (${sp.completedSteps} of ${ts} done)`);renderWatchSection(currentMovie);}else{secs--;tick();}},1000);
+  const t=setInterval(()=>{secs--;if(secs<=0){clearInterval(t);adCooldown=false;adCount++;incrementDailyAdCount();updateDoc(doc(db,'analytics','main'),{totalClicks:increment(1)}).catch(()=>{});const sp=getStepProgress(movieId),ts=parseInt(unlockSettings.totalSteps||3),aps=parseInt(unlockSettings.adsPerStep||2);sp.adsInStep++;if(sp.adsInStep>=aps){sp.adsInStep=0;sp.completedSteps++;}saveStepProgress(movieId,sp);const stepsDone=sp.completedSteps>=ts;if(stepsDone)showToast('success','🎉','All steps complete! Movie unlocked!');else showToast('info','✅',`Step progress saved! (${sp.completedSteps} of ${ts} done)`);renderWatchSection(currentMovie);if(stepsDone&&(window.selectedEpisode||selectedEpisode)){const ep=window.selectedEpisode||selectedEpisode;setTimeout(()=>playEpisode(ep),400);}}else{secs--;tick();}},1000);
 };
 
 // ─── SPIN WHEEL ───
@@ -1115,7 +1441,7 @@ window.doSpin = function(movieId) {
   const dayKey='spins_'+getTodayKey(),done=parseInt(localStorage.getItem(dayKey)||'0')+1;localStorage.setItem(dayKey,done);incrementDailyAdCount();updateDoc(doc(db,'analytics','main'),{totalClicks:increment(1)}).catch(()=>{});
   const segCount=WHEEL_SEGMENTS.length,targetIdx=Math.floor(Math.random()*segCount),extraRot=1800+(360/segCount)*targetIdx;
   canvas.style.transform=`rotate(${extraRot}deg)`;
-  setTimeout(()=>{spinLocked=false;const seg=WHEEL_SEGMENTS[targetIdx];if(seg.win){localStorage.setItem('spin_won_'+movieId,'true');if(resultEl)resultEl.innerHTML='<span style="color:#10b981;">🎉 You Won! Click Watch Now!</span>';showToast('success','🎡','You won the spin! Content unlocked!');setTimeout(()=>renderWatchSection(currentMovie),1500);}else{if(resultEl)resultEl.innerHTML='<span style="color:var(--accent);">📢 Try again! Watch more ads.</span>';const maxSpins=parseInt(unlockSettings.maxSpinsPerDay||5);if(btn&&done<maxSpins){btn.disabled=false;btn.textContent=`🎡 Spin! (${done}/${maxSpins} used)`;}else if(btn){btn.textContent='🚫 Max spins today';}}},3600);
+  setTimeout(()=>{spinLocked=false;const seg=WHEEL_SEGMENTS[targetIdx];if(seg.win){localStorage.setItem('spin_won_'+movieId,'true');if(resultEl)resultEl.innerHTML='<span style="color:#10b981;">🎉 You Won! Click Watch Now!</span>';showToast('success','🎡','You won the spin! Content unlocked!');setTimeout(()=>{renderWatchSection(currentMovie);if(window.selectedEpisode||selectedEpisode){const ep=window.selectedEpisode||selectedEpisode;setTimeout(()=>playEpisode(ep),400);}},1500);}else{if(resultEl)resultEl.innerHTML='<span style="color:var(--accent);">📢 Try again! Watch more ads.</span>';const maxSpins=parseInt(unlockSettings.maxSpinsPerDay||5);if(btn&&done<maxSpins){btn.disabled=false;btn.textContent=`🎡 Spin! (${done}/${maxSpins} used)`;}else if(btn){btn.textContent='🚫 Max spins today';}}},3600);
 };
 
 // ─── TELEGRAM GATE ───
@@ -1297,6 +1623,39 @@ window.surpriseMe = function() {
 };
 
 // ─── REELS ───
+function detectVideoType(url) {
+  if (!url) return 'unknown';
+  if (url.endsWith('.mp4') || url.includes('.mp4?')) return 'mp4';
+  if (url.includes('terabox') || url.includes('1024tera')) return 'iframe';
+  if (url.includes('drive.google.com')) return 'iframe';
+  return 'external';
+}
+
+function buildReelMedia(r, isLocked) {
+  const url  = r.videoUrl || '';
+  const type = detectVideoType(url);
+  if (isLocked || !url) return '';
+  if (type === 'mp4') {
+    return `<video class="reel-video"
+      src="${url}"
+      autoplay
+      muted
+      loop
+      playsinline
+      preload="metadata"
+      onerror="this.style.display='none'"></video>`;
+  }
+  if (type === 'iframe') {
+    return `<iframe class="reel-iframe"
+      data-src="${url}"
+      src=""
+      allowfullscreen
+      allow="autoplay"
+      loading="lazy"></iframe>`;
+  }
+  return '';
+}
+
 function renderReels() {
   const section = document.getElementById('reelsSection');
   const row     = document.getElementById('reelsRow');
@@ -1306,9 +1665,8 @@ function renderReels() {
   row.innerHTML = reelsData.map((r, idx) => {
     const isLocked    = r.accessType === 'locked';
     const thumbSrc    = r.thumbnailUrl || FALLBACK;
-    // Preload first 2 eagerly; rest lazily
     const loadingAttr = idx < 2 ? 'eager' : 'lazy';
-    const preloadAttr = idx < 2 ? 'auto'  : 'none';
+    const vType       = detectVideoType(r.videoUrl || '');
 
     const lockedOverlay = isLocked ? `
       <div class="reel-locked-overlay">
@@ -1328,21 +1686,16 @@ function renderReels() {
       <div class="reel-card"
            data-id="${r.id}"
            data-movie="${r.movieId||''}"
-           data-access="${isLocked?'locked':'free'}">
-        <img  class="reel-thumb"
-              src="${thumbSrc}"
-              loading="${loadingAttr}"
-              decoding="async"
-              onerror="this.src='${FALLBACK}'"
-              alt="${r.title||'Short Clip'}">
-        <video class="reel-video"
-               src="${r.videoUrl||''}"
-               autoplay
-               muted
-               loop
-               playsinline
-               preload="auto"
-               onerror="this.style.display='none'"></video>
+           data-access="${isLocked?'locked':'free'}"
+           data-vtype="${vType}"
+           data-vurl="${(r.videoUrl||'').replace(/"/g,'&quot;')}">
+        <img class="reel-thumb"
+             src="${thumbSrc}"
+             loading="${loadingAttr}"
+             decoding="async"
+             onerror="this.src='${FALLBACK}'"
+             alt="${r.title||'Short Clip'}">
+        ${buildReelMedia(r, isLocked)}
         <div class="reel-play-ring">▶</div>
         ${lockedOverlay}
         <div class="reel-overlay">
@@ -1355,12 +1708,10 @@ function renderReels() {
 
   attachReelEvents();
 
-  // Force autoplay on all free reel videos (handles browsers that block autoplay attribute)
   requestAnimationFrame(() => {
-    document.querySelectorAll('.reel-card[data-access="free"] .reel-video').forEach(v => {
+    document.querySelectorAll('.reel-card[data-access="free"][data-vtype="mp4"] .reel-video').forEach(v => {
       v.muted = true;
       v.play().catch(() => {
-        // Autoplay blocked — show thumbnail as fallback
         const card = v.closest('.reel-card');
         if (card) {
           const thumb = card.querySelector('.reel-thumb');
@@ -1394,25 +1745,43 @@ function attachReelEvents() {
       }
 
       // FREE — play inline
-      if (this.classList.contains('reel-playing')) return; // already playing, ignore re-tap on card body
+      if (this.classList.contains('reel-playing')) return;
+
+      const vType = this.dataset.vtype;
+      const vUrl  = this.dataset.vurl;
+
+      if (vType === 'external' && vUrl) {
+        window.open(vUrl, '_blank');
+        return;
+      }
 
       // Stop all other playing reels
       document.querySelectorAll('.reel-card.reel-playing').forEach(c => {
         c.classList.remove('reel-playing');
         const v = c.querySelector('.reel-video');
         if (v) { v.pause(); v.currentTime = 0; }
+        const fr = c.querySelector('.reel-iframe');
+        if (fr) { fr.src = ''; }
       });
 
       this.classList.add('reel-playing');
-      if (video) {
-        video.muted = true;
-        if (video.src) {
-          video.play().catch(() => {
-            // Autoplay blocked — revert to thumbnail
-            this.classList.remove('reel-playing');
-            const thumb = this.querySelector('.reel-thumb');
-            if (thumb) { thumb.style.opacity = '1'; thumb.style.pointerEvents = ''; }
-          });
+
+      if (vType === 'mp4') {
+        const video = this.querySelector('.reel-video');
+        if (video) {
+          video.muted = true;
+          if (video.src) {
+            video.play().catch(() => {
+              this.classList.remove('reel-playing');
+              const thumb = this.querySelector('.reel-thumb');
+              if (thumb) { thumb.style.opacity = '1'; thumb.style.pointerEvents = ''; }
+            });
+          }
+        }
+      } else if (vType === 'iframe') {
+        const fr = this.querySelector('.reel-iframe');
+        if (fr && fr.dataset.src) {
+          fr.src = fr.dataset.src;
         }
       }
     });
